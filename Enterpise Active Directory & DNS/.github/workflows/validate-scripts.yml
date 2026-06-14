@@ -1,0 +1,83 @@
+name: Validate Scripts
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-powershell:
+    name: PowerShell Syntax Check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check PowerShell syntax (all .ps1 files)
+        shell: pwsh
+        run: |
+          $scriptErrors = 0
+          $files = Get-ChildItem -Path . -Filter "*.ps1" -Recurse
+          Write-Host "Found $($files.Count) PowerShell script(s) to validate"
+          foreach ($file in $files) {
+            $parseErrors = $null   # must be declared before passing as [ref]
+            $tokens      = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              $file.FullName, [ref]$tokens, [ref]$parseErrors
+            )
+            if ($parseErrors.Count -gt 0) {
+              Write-Host "FAIL: $($file.Name)" -ForegroundColor Red
+              $parseErrors | ForEach-Object {
+                Write-Host "  Line $($_.Extent.StartLineNumber): $($_.Message)"
+              }
+              $scriptErrors++
+            } else {
+              Write-Host "PASS: $($file.Name)" -ForegroundColor Green
+            }
+          }
+          if ($scriptErrors -gt 0) {
+            Write-Host "$scriptErrors script(s) have syntax errors." -ForegroundColor Red
+            exit 1
+          } else {
+            Write-Host "All scripts passed syntax validation." -ForegroundColor Green
+          }
+
+  validate-bash:
+    name: Bash Script Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on .sh files
+        run: |
+          find . -name "*.sh" -exec shellcheck {} \;
+
+  validate-markdown:
+    name: Markdown Link Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Markdown files exist
+        run: |
+          echo "Markdown files in repo:"
+          find . -name "*.md" | sort
+          echo ""
+          echo "All required runbooks present:"
+          for f in runbooks/ad-replication-failure.md runbooks/gpo-not-applying.md runbooks/dhcp-scope-exhaustion.md; do
+            if [ -f "$f" ]; then echo "  ✓ $f"; else echo "  ✗ MISSING: $f"; exit 1; fi
+          done
+          echo ""
+          echo "All required scripts present:"
+          for f in scripts/New-BulkUsers.ps1 scripts/Create-OUs.ps1 scripts/Create-GPOs.ps1 scripts/Get-ReplicationStatus.ps1 scripts/Configure-DHCP.ps1 scripts/samba-ad-setup.sh; do
+            if [ -f "$f" ]; then echo "  ✓ $f"; else echo "  ✗ MISSING: $f"; exit 1; fi
+          done
